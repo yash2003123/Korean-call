@@ -67,7 +67,7 @@ const VOICE = "coral";
 
 // How long a silence means "I'm done talking".
 // Higher = more thinking time for you. Raise to 2000 if she still cuts you off.
-const SILENCE_MS = 3000;
+const SILENCE_MS = 1400;
 
 export default async function handler(req, res) {
   const key = process.env.OPENAI_API_KEY;
@@ -82,9 +82,30 @@ export default async function handler(req, res) {
     silence_duration_ms: SILENCE_MS
   };
 
+  // Transcribing your own speech is what makes your side of the captions work.
+  // Costs about $0.003/min on top of the call. Set to null to turn it off.
+  const inputTranscription = { model: "gpt-4o-mini-transcribe", language: "ko" };
+
   const attempts = [
     {
-      label: "nested audio",
+      label: "nested audio + transcription",
+      payload: {
+        session: {
+          type: "realtime",
+          model: MODEL,
+          instructions: PERSONA,
+          audio: {
+            input: {
+              turn_detection: turnDetection,
+              transcription: inputTranscription
+            },
+            output: { voice: VOICE }
+          }
+        }
+      }
+    },
+    {
+      label: "nested audio, no transcription",
       payload: {
         session: {
           type: "realtime",
@@ -94,17 +115,6 @@ export default async function handler(req, res) {
             input: { turn_detection: turnDetection },
             output: { voice: VOICE }
           }
-        }
-      }
-    },
-    {
-      label: "nested audio, default vad",
-      payload: {
-        session: {
-          type: "realtime",
-          model: MODEL,
-          instructions: PERSONA,
-          audio: { output: { voice: VOICE } }
         }
       }
     },
