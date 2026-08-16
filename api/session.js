@@ -84,7 +84,7 @@ export default async function handler(req, res) {
 
   // Transcribing your own speech is what makes your side of the captions work.
   // Costs about $0.003/min on top of the call. Set to null to turn it off.
-  const inputTranscription = { model: "gpt-4o-mini-transcribe", language: "ko" };
+  const inputTranscription = null;
 
   const attempts = [
     {
