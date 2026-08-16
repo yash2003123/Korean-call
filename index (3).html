@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>지수</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night: #151219;
+    --night-lift: #1E1A22;
+    --rose: #B8869B;
+    --rose-dim: #6E4F5C;
+    --bone: #EDE7E3;
+    --muted: #877E88;
+    --hangup: #B85454;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--night);
+    color: var(--bone);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overscroll-behavior: none;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12vh 24px calc(6vh + env(safe-area-inset-bottom));
+    background:
+      radial-gradient(120% 70% at 50% 22%, #241D28 0%, var(--night) 62%);
+  }
+
+  .who { text-align: center; }
+
+  .name {
+    font-family: "Gowun Batang", serif;
+    font-size: 44px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    margin: 0;
+  }
+
+  .status {
+    margin-top: 10px;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: lowercase;
+    color: var(--muted);
+    min-height: 20px;
+    transition: color 0.3s ease;
+  }
+
+  .status.live { color: var(--rose); }
+  .status.error { color: var(--hangup); text-transform: none; letter-spacing: 0; }
+
+  /* Signature: the ring breathes with her voice. Silence is visible. */
+  .ring-wrap {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    display: grid;
+    place-items: center;
+  }
+
+  .ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid var(--rose-dim);
+    transform: scale(0.82);
+    transition: transform 90ms linear, opacity 400ms ease;
+    opacity: 0.5;
+  }
+
+  .ring.outer { border-color: var(--rose-dim); opacity: 0.22; }
+
+  .core {
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    background: var(--night-lift);
+    border: 1px solid #2E2732;
+    display: grid;
+    place-items: center;
+    font-family: "Gowun Batang", serif;
+    font-size: 17px;
+    color: var(--muted);
+    z-index: 2;
+  }
+
+  @keyframes drift { 0%,100% { transform: scale(0.82);} 50% { transform: scale(0.87);} }
+  .idle .ring { animation: drift 4.5s ease-in-out infinite; }
+
+  .controls { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+  button {
+    font: inherit;
+    border: none;
+    cursor: pointer;
+    border-radius: 999px;
+    transition: transform 120ms ease, background 200ms ease;
+  }
+  button:active { transform: scale(0.96); }
+  button:focus-visible { outline: 2px solid var(--rose); outline-offset: 4px; }
+
+  .call {
+    background: var(--rose);
+    color: #1A1218;
+    padding: 18px 46px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .call[disabled] { background: #3A323E; color: var(--muted); cursor: default; }
+
+  .hangup {
+    background: transparent;
+    color: var(--hangup);
+    border: 1px solid #4A2C2C;
+    padding: 14px 38px;
+    font-size: 15px;
+  }
+
+  .hint {
+    font-size: 12px;
+    color: #5F5866;
+    text-align: center;
+    max-width: 260px;
+    line-height: 1.5;
+  }
+
+  .hidden { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .idle .ring { animation: none; }
+    .ring { transition: none; }
+  }
+</style>
+</head>
+<body class="idle">
+
+  <div class="who">
+    <h1 class="name">지수</h1>
+    <p class="status" id="status">not connected</p>
+  </div>
+
+  <div class="ring-wrap" id="ringWrap">
+    <div class="ring outer" id="ringOuter"></div>
+    <div class="ring" id="ringInner"></div>
+    <div class="core" id="core">11:04 PM</div>
+  </div>
+
+  <div class="controls">
+    <button class="call" id="callBtn">전화 걸기</button>
+    <button class="hangup hidden" id="hangBtn">끊기</button>
+    <p class="hint" id="hint">Headphones recommended. She can hear you the whole time, so just talk over her when you want to.</p>
+  </div>
+
+  <audio id="her" autoplay playsinline></audio>
+
+<script>
+const statusEl = document.getElementById("status");
+const callBtn  = document.getElementById("callBtn");
+const hangBtn  = document.getElementById("hangBtn");
+const hint     = document.getElementById("hint");
+const audioEl  = document.getElementById("her");
+const ringIn   = document.getElementById("ringInner");
+const ringOut  = document.getElementById("ringOuter");
+const core     = document.getElementById("core");
+
+let pc = null, mic = null, audioCtx = null, raf = null;
+
+function setStatus(text, cls = "") {
+  statusEl.textContent = text;
+  statusEl.className = "status " + cls;
+}
+
+async function startCall() {
+  callBtn.disabled = true;
+  setStatus("connecting");
+
+  try {
+    // 1. Ask the phone for the microphone.
+    mic = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    });
+
+    // 2. Ask our own server for a temporary key.
+    const sessionRes = await fetch("/api/session");
+    const session = await sessionRes.json();
+    if (!sessionRes.ok || !session.token) {
+      throw new Error(session.error || "Server did not return a token.");
+    }
+
+    // 3. Open a direct audio connection to OpenAI.
+    pc = new RTCPeerConnection();
+    pc.ontrack = (e) => {
+      audioEl.srcObject = e.streams[0];
+      listenToHer(e.streams[0]);
+    };
+    pc.addTrack(mic.getAudioTracks()[0], mic);
+    pc.createDataChannel("oai-events");
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const answerSdp = await exchangeSdp(offer.sdp, session.token, session.model);
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+    document.body.classList.remove("idle");
+    setStatus("connected", "live");
+    core.textContent = "말해봐";
+    callBtn.classList.add("hidden");
+    hangBtn.classList.remove("hidden");
+    hint.textContent = "Interrupt her whenever. That is the point.";
+  } catch (err) {
+    console.error(err);
+    setStatus(String(err.message || err), "error");
+    callBtn.disabled = false;
+    cleanup();
+  }
+}
+
+// OpenAI has used two URLs for this handshake. Try both.
+async function exchangeSdp(sdp, token, model) {
+  const urls = [
+    "https://api.openai.com/v1/realtime/calls?model=" + encodeURIComponent(model),
+    "https://api.openai.com/v1/realtime?model=" + encodeURIComponent(model)
+  ];
+  let lastText = "";
+  for (const url of urls) {
+    const r = await fetch(url, {
+      method: "POST",
+      body: sdp,
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/sdp" }
+    });
+    const text = await r.text();
+    if (r.ok && text.startsWith("v=")) return text;
+    lastText = text;
+  }
+  throw new Error("Handshake failed: " + lastText.slice(0, 120));
+}
+
+// The ring follows her voice. When she stops, it settles.
+function listenToHer(stream) {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(stream);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  src.connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+
+  (function tick() {
+    analyser.getByteFrequencyData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const level = Math.min(1, (sum / data.length) / 70);
+    ringIn.style.transform  = `scale(${0.82 + level * 0.22})`;
+    ringOut.style.transform = `scale(${0.86 + level * 0.42})`;
+    ringIn.style.opacity = String(0.35 + level * 0.5);
+    raf = requestAnimationFrame(tick);
+  })();
+}
+
+function cleanup() {
+  if (raf) cancelAnimationFrame(raf);
+  if (audioCtx) audioCtx.close().catch(() => {});
+  if (mic) mic.getTracks().forEach(t => t.stop());
+  if (pc) pc.close();
+  pc = mic = audioCtx = raf = null;
+}
+
+function endCall() {
+  cleanup();
+  document.body.classList.add("idle");
+  ringIn.style.transform = "";
+  ringOut.style.transform = "";
+  core.textContent = "11:04 PM";
+  setStatus("call ended");
+  hangBtn.classList.add("hidden");
+  callBtn.classList.remove("hidden");
+  callBtn.disabled = false;
+  callBtn.textContent = "다시 걸기";
+  hint.textContent = "Headphones recommended.";
+}
+
+callBtn.addEventListener("click", startCall);
+hangBtn.addEventListener("click", endCall);
+</script>
+</body>
+</html>
