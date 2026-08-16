@@ -69,9 +69,9 @@ const VOICE = "coral";
 // Higher = more thinking time for you. Raise to 2000 if she still cuts you off.
 const SILENCE_MS = 1400;
 
-// Transcribe your own speech too, so 자막 shows both sides of the call.
-// Costs roughly $0.003/min extra. Set false for her side only.
-const TRANSCRIBE_ME = true;
+// Transcribing your own speech would make 자막 show both sides of the call,
+// at roughly $0.003/min extra. Off: 자막 shows her side only.
+const TRANSCRIBE_ME = false;
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
