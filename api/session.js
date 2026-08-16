@@ -39,7 +39,7 @@ export default async function handler(req, res) {
   }
 
   const body = {
-    model: "gpt-realtime",
+    model: ""gpt-realtime-2.1-mini"",
     voice: "shimmer",
     instructions: PERSONA,
     turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 500 }
