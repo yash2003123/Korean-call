@@ -242,6 +242,15 @@ let timerInt = null, startedAt = null;
 let herLine = null, myLine = null;
 let captionsOn = false;
 let callActive = false;
+let dropTimer = null;
+
+// How long a "disconnected" blip is allowed to last before it counts as a
+// dropped call.
+const RECONNECT_GRACE_MS = 8000;
+
+function clearDropTimer() {
+  if (dropTimer) { clearTimeout(dropTimer); dropTimer = null; }
+}
 
 /* ── timer ───────────────────────────────────────────── */
 
@@ -359,10 +368,27 @@ async function startCall() {
 
     // If the network drops or the session expires, the call is over whether
     // or not you pressed 끊기. Never leave a dead call looking connected.
+    //
+    // "disconnected" is routinely transient — a tunnel, a Wi-Fi handoff — and
+    // WebRTC recovers on its own, so give it a moment before hanging up.
     pc.onconnectionstatechange = () => {
       if (!pc) return;
-      if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+      const state = pc.connectionState;
+
+      if (state === "failed" || state === "closed") {
+        clearDropTimer();
         endCall("call dropped");
+      } else if (state === "disconnected") {
+        if (!dropTimer) {
+          setStatus("reconnecting", "live");
+          dropTimer = setTimeout(() => {
+            dropTimer = null;
+            endCall("call dropped");
+          }, RECONNECT_GRACE_MS);
+        }
+      } else if (state === "connected") {
+        clearDropTimer();
+        if (callActive) setStatus("connected", "live");
       }
     };
 
@@ -461,6 +487,7 @@ function listenToHer(stream) {
 
 function cleanup() {
   stopTimer();
+  clearDropTimer();
   if (raf) cancelAnimationFrame(raf);
   if (audioCtx) audioCtx.close().catch(() => {});
   if (mic) mic.getTracks().forEach(t => t.stop());
