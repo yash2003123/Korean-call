@@ -267,7 +267,6 @@ function newLine(who) {
   const el = document.createElement("div");
   el.className = "line " + who;
   capsEl.appendChild(el);
-  // Keep the DOM small on long calls.
   while (capsEl.children.length > 40) capsEl.removeChild(capsEl.firstChild);
   return el;
 }
@@ -293,7 +292,7 @@ function handleEvent(msg) {
       scrollCaps();
       break;
 
-    // You speaking
+    // You speaking (only appears if input transcription is on in session.js)
     case "conversation.item.input_audio_transcription.delta":
       if (!myLine) myLine = newLine("me");
       myLine.textContent += msg.delta || "";
@@ -307,7 +306,6 @@ function handleEvent(msg) {
       scrollCaps();
       break;
 
-    // She started talking again, so close off any open line.
     case "input_audio_buffer.speech_started":
       herLine = null;
       break;
@@ -333,6 +331,7 @@ async function startCall() {
   setStatus("connecting");
 
   try {
+    // Mic permission first, so the token is never left waiting on a human.
     mic = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true }
     });
@@ -377,12 +376,15 @@ async function startCall() {
   }
 }
 
-async function exchangeSdp(sdp, token, model) {
+// Ephemeral tokens live about a minute. If one goes stale between
+// minting and the handshake, mint a fresh one and try once more.
+async function exchangeSdp(sdp, token, model, retried = false) {
   const urls = [
     "https://api.openai.com/v1/realtime/calls?model=" + encodeURIComponent(model),
     "https://api.openai.com/v1/realtime?model=" + encodeURIComponent(model)
   ];
   let lastText = "";
+
   for (const url of urls) {
     const r = await fetch(url, {
       method: "POST",
@@ -392,7 +394,13 @@ async function exchangeSdp(sdp, token, model) {
     const text = await r.text();
     if (r.ok && text.startsWith("v=")) return text;
     lastText = text;
+
+    if (r.status === 401 && !retried) {
+      const again = await (await fetch("/api/session")).json();
+      if (again.token) return exchangeSdp(sdp, again.token, model, true);
+    }
   }
+
   throw new Error("Handshake failed: " + lastText.slice(0, 120));
 }
 
