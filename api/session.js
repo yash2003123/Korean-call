@@ -69,7 +69,16 @@ const VOICE = "coral";
 // Higher = more thinking time for you. Raise to 2000 if she still cuts you off.
 const SILENCE_MS = 1400;
 
+// Transcribe your own speech too, so 자막 shows both sides of the call.
+// Costs roughly $0.003/min extra. Set false for her side only.
+const TRANSCRIBE_ME = true;
+
 export default async function handler(req, res) {
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "Method not allowed." });
+  }
+
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     return res.status(500).json({ error: "OPENAI_API_KEY is not set in Vercel." });
@@ -83,9 +92,12 @@ export default async function handler(req, res) {
   };
 
   // Transcribing your own speech is what makes your side of the captions work.
-  // Costs about $0.003/min on top of the call. Set to null to turn it off.
-  const inputTranscription = null;
+  // Costs about $0.003/min on top of the call. Set to null to turn it off —
+  // the 자막 button will then only ever show her side.
+  const inputTranscription = TRANSCRIBE_ME ? { model: "gpt-4o-mini-transcribe" } : null;
 
+  // Every attempt carries the persona. A session without it is not 지수, and
+  // falling back to one silently would look like a working call in English.
   const attempts = [
     {
       label: "nested audio + transcription",
@@ -119,10 +131,16 @@ export default async function handler(req, res) {
       }
     },
     {
-      label: "bare minimum",
-      payload: { session: { type: "realtime", model: MODEL } }
+      label: "instructions only",
+      payload: {
+        session: { type: "realtime", model: MODEL, instructions: PERSONA }
+      }
     }
   ];
+
+  // With transcription off, attempt 1 and 2 are the same request. Don't pay
+  // for the round trip.
+  if (!inputTranscription) attempts.splice(0, 1);
 
   const failures = [];
 
@@ -156,5 +174,12 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(500).json({ error: "Could not start a session.", failures });
+  // Full upstream bodies stay in the Vercel logs. The browser gets the shape
+  // of the failure and nothing from OpenAI's response.
+  console.error("Could not mint a realtime session:", JSON.stringify(failures));
+
+  return res.status(502).json({
+    error: "Could not start a session. Check the Vercel function logs.",
+    tried: failures.map((f) => ({ attempt: f.tried, status: f.status ?? null }))
+  });
 }

@@ -205,7 +205,7 @@
 
   <div class="who">
     <h1 class="name">지수</h1>
-    <p class="status" id="status">not connected</p>
+    <p class="status" id="status" role="status" aria-live="polite">not connected</p>
   </div>
 
   <div class="ring-wrap">
@@ -241,6 +241,7 @@ let pc = null, mic = null, audioCtx = null, raf = null, dc = null;
 let timerInt = null, startedAt = null;
 let herLine = null, myLine = null;
 let captionsOn = false;
+let callActive = false;
 
 /* ── timer ───────────────────────────────────────────── */
 
@@ -267,7 +268,13 @@ function newLine(who) {
   const el = document.createElement("div");
   el.className = "line " + who;
   capsEl.appendChild(el);
-  while (capsEl.children.length > 40) capsEl.removeChild(capsEl.firstChild);
+  while (capsEl.children.length > 40) {
+    const dropped = capsEl.firstChild;
+    capsEl.removeChild(dropped);
+    // Never keep writing into a bubble that is no longer on screen.
+    if (dropped === herLine) herLine = null;
+    if (dropped === myLine) myLine = null;
+  }
   return el;
 }
 
@@ -306,8 +313,10 @@ function handleEvent(msg) {
       scrollCaps();
       break;
 
+    // A new turn from you starts a new bubble. Her line is closed by its own
+    // .done event — interrupting her must not split what she already said.
     case "input_audio_buffer.speech_started":
-      herLine = null;
+      myLine = null;
       break;
   }
 }
@@ -347,7 +356,19 @@ async function startCall() {
       audioEl.srcObject = e.streams[0];
       listenToHer(e.streams[0]);
     };
-    pc.addTrack(mic.getAudioTracks()[0], mic);
+
+    // If the network drops or the session expires, the call is over whether
+    // or not you pressed 끊기. Never leave a dead call looking connected.
+    pc.onconnectionstatechange = () => {
+      if (!pc) return;
+      if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+        endCall("call dropped");
+      }
+    };
+
+    const track = mic.getAudioTracks()[0];
+    if (!track) throw new Error("No microphone track available.");
+    pc.addTrack(track, mic);
 
     // Transcripts arrive here as the conversation happens.
     dc = pc.createDataChannel("oai-events");
@@ -362,6 +383,7 @@ async function startCall() {
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
     capsEl.innerHTML = "";
+    callActive = true;
     document.body.classList.remove("idle");
     setStatus("connected", "live");
     startTimer();
@@ -370,6 +392,7 @@ async function startCall() {
     hint.textContent = "Interrupt her whenever. That is the point.";
   } catch (err) {
     console.error(err);
+    callActive = false;
     setStatus(String(err.message || err), "error");
     callBtn.disabled = false;
     cleanup();
@@ -395,9 +418,12 @@ async function exchangeSdp(sdp, token, model, retried = false) {
     if (r.ok && text.startsWith("v=")) return text;
     lastText = text;
 
+    // A re-mint that itself fails must not swallow the real handshake error.
     if (r.status === 401 && !retried) {
-      const again = await (await fetch("/api/session")).json();
-      if (again.token) return exchangeSdp(sdp, again.token, model, true);
+      try {
+        const again = await (await fetch("/api/session")).json();
+        if (again.token) return exchangeSdp(sdp, again.token, model, true);
+      } catch (_) { /* fall through and report the handshake failure */ }
     }
   }
 
@@ -406,7 +432,15 @@ async function exchangeSdp(sdp, token, model, retried = false) {
 
 // The ring follows her voice. When she stops, it settles.
 function listenToHer(stream) {
+  // ontrack can fire more than once. A second context would leak both an
+  // AudioContext (browsers cap you at a handful) and an orphaned rAF loop.
+  if (audioCtx) return;
+
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // By now we are several awaits past the click, so Safari has usually closed
+  // the gesture window and starts the context suspended.
+  audioCtx.resume().catch(() => {});
+
   const src = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 512;
@@ -431,18 +465,25 @@ function cleanup() {
   if (audioCtx) audioCtx.close().catch(() => {});
   if (mic) mic.getTracks().forEach(t => t.stop());
   if (dc) { try { dc.close(); } catch (_) {} }
-  if (pc) pc.close();
+  if (pc) { pc.onconnectionstatechange = null; pc.close(); }
+  audioEl.srcObject = null;
   pc = mic = audioCtx = raf = dc = null;
   herLine = myLine = null;
 }
 
-function endCall() {
+// Reached from the 끊기 button and from a dropped connection, so it has to be
+// safe to call twice.
+function endCall(reason = "call ended") {
+  if (!callActive) return;
+  callActive = false;
+
   cleanup();
   document.body.classList.add("idle");
   ringIn.style.transform = "";
   ringOut.style.transform = "";
+  ringIn.style.opacity = "";
   // The final duration stays on screen. That is what the call cost you.
-  setStatus("call ended");
+  setStatus(reason, reason === "call ended" ? "" : "error");
   hangBtn.classList.add("hidden");
   callBtn.classList.remove("hidden");
   callBtn.disabled = false;
@@ -451,8 +492,11 @@ function endCall() {
 }
 
 callBtn.addEventListener("click", startCall);
-hangBtn.addEventListener("click", endCall);
+hangBtn.addEventListener("click", () => endCall());
 ccBtn.addEventListener("click", toggleCaptions);
+
+// Closing the tab mid-call should hand the microphone back immediately.
+window.addEventListener("pagehide", cleanup);
 </script>
 </body>
 </html>

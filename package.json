@@ -1,0 +1,8 @@
+{
+  "name": "korean-call",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}
