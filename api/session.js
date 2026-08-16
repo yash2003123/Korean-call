@@ -1,6 +1,5 @@
 // This runs on Vercel's server, not in your phone's browser.
 // Your real API key never leaves this file's environment.
-// It hands the browser a temporary key that expires in about a minute.
 
 // ─────────────────────────────────────────────────────────────
 // EDIT THIS. This is 지수. Everything about how she sounds is here.
@@ -43,7 +42,8 @@ const PERSONA = `
 첫 마디는 짧게. 예: "여보세요? 아, 안녕하세요."
 `;
 
-// If you'd rather practice a different scenario, replace PERSONA above.
+const MODEL = "gpt-realtime-2.1-mini";
+const VOICE = "coral";
 
 export default async function handler(req, res) {
   const key = process.env.OPENAI_API_KEY;
@@ -51,51 +51,77 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "OPENAI_API_KEY is not set in Vercel." });
   }
 
-  const body = {
-    model: "gpt-realtime-2.1-mini",
-    voice: "coral",
-    instructions: PERSONA,
-    turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 500 }
-  };
-
-  // OpenAI has used two endpoint names for this. Try the newer one, fall back.
-  const endpoints = [
-    "https://api.openai.com/v1/realtime/client_secrets",
-    "https://api.openai.com/v1/realtime/sessions"
+  // The Realtime session shape changed when it went GA.
+  // Try the current nested shape first, then older/simpler ones.
+  const attempts = [
+    {
+      label: "nested audio",
+      payload: {
+        session: {
+          type: "realtime",
+          model: MODEL,
+          instructions: PERSONA,
+          audio: {
+            input: { turn_detection: { type: "server_vad" } },
+            output: { voice: VOICE }
+          }
+        }
+      }
+    },
+    {
+      label: "nested audio, no vad",
+      payload: {
+        session: {
+          type: "realtime",
+          model: MODEL,
+          instructions: PERSONA,
+          audio: { output: { voice: VOICE } }
+        }
+      }
+    },
+    {
+      label: "flat",
+      payload: {
+        session: { type: "realtime", model: MODEL, voice: VOICE, instructions: PERSONA }
+      }
+    },
+    {
+      label: "bare minimum",
+      payload: { session: { type: "realtime", model: MODEL } }
+    }
   ];
 
-  let lastError = null;
+  const failures = [];
 
-  for (const url of endpoints) {
+  for (const attempt of attempts) {
     try {
-      const payload = url.endsWith("client_secrets") ? { session: body } : body;
-      const r = await fetch(url, {
+      const r = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${key}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(attempt.payload)
       });
 
       const data = await r.json();
+
       if (!r.ok) {
-        lastError = data;
+        failures.push({ tried: attempt.label, status: r.status, response: data });
         continue;
       }
 
-      // The token lives at different depths depending on the endpoint.
-      const token = data?.client_secret?.value || data?.value;
+      const token = data?.value || data?.client_secret?.value;
       if (!token) {
-        lastError = data;
+        failures.push({ tried: attempt.label, status: r.status, gotBack: data });
         continue;
       }
 
-      return res.status(200).json({ token, model: body.model });
+      return res.status(200).json({ token, model: MODEL, usedShape: attempt.label });
     } catch (err) {
-      lastError = { message: String(err) };
+      failures.push({ tried: attempt.label, threw: String(err) });
     }
   }
 
-  return res.status(500).json({ error: "Could not start a session.", detail: lastError });
+  return res.status(500).json({ error: "Could not start a session.", failures });
 }
