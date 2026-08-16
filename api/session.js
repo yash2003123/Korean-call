@@ -67,7 +67,7 @@ const VOICE = "coral";
 
 // How long a silence means "I'm done talking".
 // Higher = more thinking time for you. Raise to 2000 if she still cuts you off.
-const SILENCE_MS = 1400;
+const SILENCE_MS = 3000;
 
 export default async function handler(req, res) {
   const key = process.env.OPENAI_API_KEY;
