@@ -97,7 +97,12 @@
     font-size: 17px;
     color: var(--muted);
     z-index: 2;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.4s ease;
   }
+
+  /* The timer reads brighter while the call is live. */
+  body:not(.idle) .core { color: var(--bone); font-size: 26px; }
 
   @keyframes drift { 0%,100% { transform: scale(0.82);} 50% { transform: scale(0.87);} }
   .idle .ring { animation: drift 4.5s ease-in-out infinite; }
@@ -158,7 +163,7 @@
   <div class="ring-wrap" id="ringWrap">
     <div class="ring outer" id="ringOuter"></div>
     <div class="ring" id="ringInner"></div>
-    <div class="core" id="core">11:04 PM</div>
+    <div class="core" id="core">0:00</div>
   </div>
 
   <div class="controls">
@@ -180,6 +185,24 @@ const ringOut  = document.getElementById("ringOuter");
 const core     = document.getElementById("core");
 
 let pc = null, mic = null, audioCtx = null, raf = null;
+let timerInt = null, startedAt = null;
+
+function fmt(sec) {
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m + ":" + String(s).padStart(2, "0");
+}
+
+function startTimer() {
+  startedAt = Date.now();
+  core.textContent = "0:00";
+  timerInt = setInterval(() => {
+    core.textContent = fmt(Math.floor((Date.now() - startedAt) / 1000));
+  }, 1000);
+}
+
+function stopTimer() {
+  if (timerInt) { clearInterval(timerInt); timerInt = null; }
+}
 
 function setStatus(text, cls = "") {
   statusEl.textContent = text;
@@ -191,7 +214,7 @@ async function startCall() {
   setStatus("connecting");
 
   try {
-    // 1. Ask the phone for the microphone.
+    // 1. Ask the device for the microphone.
     mic = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true }
     });
@@ -220,7 +243,7 @@ async function startCall() {
 
     document.body.classList.remove("idle");
     setStatus("connected", "live");
-    core.textContent = "말해봐";
+    startTimer();
     callBtn.classList.add("hidden");
     hangBtn.classList.remove("hidden");
     hint.textContent = "Interrupt her whenever. That is the point.";
@@ -232,7 +255,6 @@ async function startCall() {
   }
 }
 
-// OpenAI has used two URLs for this handshake. Try both.
 async function exchangeSdp(sdp, token, model) {
   const urls = [
     "https://api.openai.com/v1/realtime/calls?model=" + encodeURIComponent(model),
@@ -274,6 +296,7 @@ function listenToHer(stream) {
 }
 
 function cleanup() {
+  stopTimer();
   if (raf) cancelAnimationFrame(raf);
   if (audioCtx) audioCtx.close().catch(() => {});
   if (mic) mic.getTracks().forEach(t => t.stop());
@@ -286,7 +309,7 @@ function endCall() {
   document.body.classList.add("idle");
   ringIn.style.transform = "";
   ringOut.style.transform = "";
-  core.textContent = "11:04 PM";
+  // The final duration stays on screen. That is what the call cost you.
   setStatus("call ended");
   hangBtn.classList.add("hidden");
   callBtn.classList.remove("hidden");
