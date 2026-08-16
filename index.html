@@ -24,7 +24,7 @@
 
   html, body {
     margin: 0;
-    height: 100%;
+    min-height: 100%;
     background: var(--night);
     color: var(--bone);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -32,27 +32,28 @@
   }
 
   body {
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    padding: 12vh 24px calc(6vh + env(safe-area-inset-bottom));
-    background:
-      radial-gradient(120% 70% at 50% 22%, #241D28 0%, var(--night) 62%);
+    padding: 8vh 24px calc(5vh + env(safe-area-inset-bottom));
+    gap: 20px;
+    background: radial-gradient(120% 70% at 50% 22%, #241D28 0%, var(--night) 62%);
   }
 
   .who { text-align: center; }
 
   .name {
     font-family: "Gowun Batang", serif;
-    font-size: 44px;
+    font-size: 40px;
     font-weight: 400;
     letter-spacing: 0.02em;
     margin: 0;
   }
 
   .status {
-    margin-top: 10px;
+    margin-top: 8px;
     font-size: 14px;
     letter-spacing: 0.08em;
     text-transform: lowercase;
@@ -67,10 +68,11 @@
   /* Signature: the ring breathes with her voice. Silence is visible. */
   .ring-wrap {
     position: relative;
-    width: 220px;
-    height: 220px;
+    width: 200px;
+    height: 200px;
     display: grid;
     place-items: center;
+    flex: none;
   }
 
   .ring {
@@ -86,8 +88,8 @@
   .ring.outer { border-color: var(--rose-dim); opacity: 0.22; }
 
   .core {
-    width: 128px;
-    height: 128px;
+    width: 118px;
+    height: 118px;
     border-radius: 50%;
     background: var(--night-lift);
     border: 1px solid #2E2732;
@@ -101,20 +103,56 @@
     transition: color 0.4s ease;
   }
 
-  /* The timer reads brighter while the call is live. */
-  body:not(.idle) .core { color: var(--bone); font-size: 26px; }
+  body:not(.idle) .core { color: var(--bone); font-size: 24px; }
 
   @keyframes drift { 0%,100% { transform: scale(0.82);} 50% { transform: scale(0.87);} }
   .idle .ring { animation: drift 4.5s ease-in-out infinite; }
 
-  .controls { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  /* Captions. Hidden until asked for: reading beats listening, and listening is the point. */
+  .captions {
+    width: 100%;
+    max-width: 420px;
+    height: 150px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 2px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+  }
+
+  .line {
+    font-size: 16px;
+    line-height: 1.55;
+    max-width: 88%;
+    padding: 9px 13px;
+    border-radius: 14px;
+    word-break: keep-all;
+  }
+
+  .line.her {
+    align-self: flex-start;
+    background: #241E29;
+    color: var(--bone);
+    border-bottom-left-radius: 4px;
+  }
+
+  .line.me {
+    align-self: flex-end;
+    background: #2E2029;
+    color: #D9C3CD;
+    border-bottom-right-radius: 4px;
+  }
+
+  .controls { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 
   button {
     font: inherit;
     border: none;
     cursor: pointer;
     border-radius: 999px;
-    transition: transform 120ms ease, background 200ms ease;
+    transition: transform 120ms ease, background 200ms ease, color 200ms ease;
   }
   button:active { transform: scale(0.96); }
   button:focus-visible { outline: 2px solid var(--rose); outline-offset: 4px; }
@@ -122,7 +160,7 @@
   .call {
     background: var(--rose);
     color: #1A1218;
-    padding: 18px 46px;
+    padding: 17px 44px;
     font-size: 17px;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -133,15 +171,25 @@
     background: transparent;
     color: var(--hangup);
     border: 1px solid #4A2C2C;
-    padding: 14px 38px;
+    padding: 13px 36px;
     font-size: 15px;
   }
+
+  .cc {
+    background: transparent;
+    border: 1px solid #332B38;
+    color: #6F6675;
+    padding: 7px 18px;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+  }
+  .cc.on { border-color: var(--rose-dim); color: var(--rose); }
 
   .hint {
     font-size: 12px;
     color: #5F5866;
     text-align: center;
-    max-width: 260px;
+    max-width: 280px;
     line-height: 1.5;
   }
 
@@ -160,15 +208,18 @@
     <p class="status" id="status">not connected</p>
   </div>
 
-  <div class="ring-wrap" id="ringWrap">
+  <div class="ring-wrap">
     <div class="ring outer" id="ringOuter"></div>
     <div class="ring" id="ringInner"></div>
     <div class="core" id="core">0:00</div>
   </div>
 
+  <div class="captions hidden" id="captions"></div>
+
   <div class="controls">
     <button class="call" id="callBtn">전화 걸기</button>
     <button class="hangup hidden" id="hangBtn">끊기</button>
+    <button class="cc" id="ccBtn">자막</button>
     <p class="hint" id="hint">Headphones recommended. She can hear you the whole time, so just talk over her when you want to.</p>
   </div>
 
@@ -178,14 +229,20 @@
 const statusEl = document.getElementById("status");
 const callBtn  = document.getElementById("callBtn");
 const hangBtn  = document.getElementById("hangBtn");
+const ccBtn    = document.getElementById("ccBtn");
+const capsEl   = document.getElementById("captions");
 const hint     = document.getElementById("hint");
 const audioEl  = document.getElementById("her");
 const ringIn   = document.getElementById("ringInner");
 const ringOut  = document.getElementById("ringOuter");
 const core     = document.getElementById("core");
 
-let pc = null, mic = null, audioCtx = null, raf = null;
+let pc = null, mic = null, audioCtx = null, raf = null, dc = null;
 let timerInt = null, startedAt = null;
+let herLine = null, myLine = null;
+let captionsOn = false;
+
+/* ── timer ───────────────────────────────────────────── */
 
 function fmt(sec) {
   const m = Math.floor(sec / 60), s = sec % 60;
@@ -204,6 +261,68 @@ function stopTimer() {
   if (timerInt) { clearInterval(timerInt); timerInt = null; }
 }
 
+/* ── captions ────────────────────────────────────────── */
+
+function newLine(who) {
+  const el = document.createElement("div");
+  el.className = "line " + who;
+  capsEl.appendChild(el);
+  // Keep the DOM small on long calls.
+  while (capsEl.children.length > 40) capsEl.removeChild(capsEl.firstChild);
+  return el;
+}
+
+function scrollCaps() {
+  capsEl.scrollTop = capsEl.scrollHeight;
+}
+
+function handleEvent(msg) {
+  switch (msg.type) {
+    // 지수 speaking
+    case "response.audio_transcript.delta":
+    case "response.output_audio_transcript.delta":
+      if (!herLine) herLine = newLine("her");
+      herLine.textContent += msg.delta || "";
+      scrollCaps();
+      break;
+
+    case "response.audio_transcript.done":
+    case "response.output_audio_transcript.done":
+      if (herLine && msg.transcript) herLine.textContent = msg.transcript;
+      herLine = null;
+      scrollCaps();
+      break;
+
+    // You speaking
+    case "conversation.item.input_audio_transcription.delta":
+      if (!myLine) myLine = newLine("me");
+      myLine.textContent += msg.delta || "";
+      scrollCaps();
+      break;
+
+    case "conversation.item.input_audio_transcription.completed":
+      if (!myLine) myLine = newLine("me");
+      if (msg.transcript) myLine.textContent = msg.transcript;
+      myLine = null;
+      scrollCaps();
+      break;
+
+    // She started talking again, so close off any open line.
+    case "input_audio_buffer.speech_started":
+      herLine = null;
+      break;
+  }
+}
+
+function toggleCaptions() {
+  captionsOn = !captionsOn;
+  capsEl.classList.toggle("hidden", !captionsOn);
+  ccBtn.classList.toggle("on", captionsOn);
+  if (captionsOn) scrollCaps();
+}
+
+/* ── the call ────────────────────────────────────────── */
+
 function setStatus(text, cls = "") {
   statusEl.textContent = text;
   statusEl.className = "status " + cls;
@@ -214,26 +333,28 @@ async function startCall() {
   setStatus("connecting");
 
   try {
-    // 1. Ask the device for the microphone.
     mic = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true }
     });
 
-    // 2. Ask our own server for a temporary key.
     const sessionRes = await fetch("/api/session");
     const session = await sessionRes.json();
     if (!sessionRes.ok || !session.token) {
       throw new Error(session.error || "Server did not return a token.");
     }
 
-    // 3. Open a direct audio connection to OpenAI.
     pc = new RTCPeerConnection();
     pc.ontrack = (e) => {
       audioEl.srcObject = e.streams[0];
       listenToHer(e.streams[0]);
     };
     pc.addTrack(mic.getAudioTracks()[0], mic);
-    pc.createDataChannel("oai-events");
+
+    // Transcripts arrive here as the conversation happens.
+    dc = pc.createDataChannel("oai-events");
+    dc.onmessage = (e) => {
+      try { handleEvent(JSON.parse(e.data)); } catch (_) {}
+    };
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -241,6 +362,7 @@ async function startCall() {
     const answerSdp = await exchangeSdp(offer.sdp, session.token, session.model);
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
+    capsEl.innerHTML = "";
     document.body.classList.remove("idle");
     setStatus("connected", "live");
     startTimer();
@@ -300,8 +422,10 @@ function cleanup() {
   if (raf) cancelAnimationFrame(raf);
   if (audioCtx) audioCtx.close().catch(() => {});
   if (mic) mic.getTracks().forEach(t => t.stop());
+  if (dc) { try { dc.close(); } catch (_) {} }
   if (pc) pc.close();
-  pc = mic = audioCtx = raf = null;
+  pc = mic = audioCtx = raf = dc = null;
+  herLine = myLine = null;
 }
 
 function endCall() {
@@ -315,11 +439,12 @@ function endCall() {
   callBtn.classList.remove("hidden");
   callBtn.disabled = false;
   callBtn.textContent = "다시 걸기";
-  hint.textContent = "Headphones recommended.";
+  hint.textContent = "Transcript stays until you call again.";
 }
 
 callBtn.addEventListener("click", startCall);
 hangBtn.addEventListener("click", endCall);
+ccBtn.addEventListener("click", toggleCaptions);
 </script>
 </body>
 </html>
